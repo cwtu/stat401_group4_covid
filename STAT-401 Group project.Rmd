@@ -1,0 +1,96 @@
+---
+title: "STAT-401 Group Project"
+output: html_notebook
+---
+
+ 
+
+```{r}
+library(ggplot2)
+library(data.table)
+library(ggplot2)
+library(gganimate)
+library(transformr)
+library(dplyr)
+library(tidyverse)
+library(scales)
+
+#Cases from JLU
+confirmed_cases_US <- "https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"
+confirmed_cases_US <- read.csv(confirmed_cases_US)
+#Deaths from JLU
+deaths_US <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv"
+deaths_US <- read.csv(deaths_US)
+
+owid_vaccines <- "https://raw.githubusercontent.com/owid/covid-19-data/13ee5b4126177156fba70fada48f7905da60e9c4/public/data/vaccinations/us_state_vaccinations.csv"
+owid_vaccines <- read.csv(owid_vaccines)
+
+
+```
+
+
+```{r}
+
+vaccines_time = owid_vaccines %>% select("date"| "location" | "people_vaccinated")
+head(vaccines_time)
+
+
+
+cases = confirmed_cases_US %>% select("Province_State" | starts_with("X"))
+deaths = deaths_US %>% select("Province_State" | starts_with("X"))
+
+
+cases = cases %>% group_by(Province_State) %>% summarise(across(starts_with("X"), sum))
+deaths = deaths %>% group_by(Province_State) %>% summarise(across(starts_with("X"), sum))
+
+setDT(cases)
+cases = cases %>% melt(cases, id=c("Province_State"), measure=patterns("^X"), value.name="Cases", variable.name="Date")
+
+setDT(deaths)
+deaths = deaths %>% melt(deaths, id=c("Province_State"), measure=patterns("^X"), value.name="Deaths", variable.name="Date")
+
+cases$Date = as.Date(cases$Date, format="X%m.%d.%y")
+deaths$Date = as.Date(deaths$Date, format="X%m.%d.%y")
+covid <- merge(cases, deaths, by=c("Province_State", "Date"))
+
+state = "Maryland"
+state_covid = covid %>% filter(Province_State == state)
+
+#reshape data from 'wide' to 'long' for princess ggplot 
+state_covid = state_covid %>% pivot_longer(cols= c(Deaths, Cases), names_to = "Type")
+head(state_covid)
+
+vaccines_time$date = as.Date(vaccines_time$date)   
+state_vax = vaccines_time %>% filter(location == state)
+head(state_vax)
+
+```
+
+
+```{r}
+theme_set(theme_gray())
+
+
+
+death_plot <- ggplot(data = state_covid, aes(x = Date,y = value , fill = Type)) +
+  labs(title = "Covid Cases and Deaths in Maryland"  ) +
+  geom_area(alpha = .65)  +
+  scale_y_continuous(name = "Number of Cases/Deaths", labels = comma) +
+  scale_fill_manual(values = c('orange','red'))
+death_plot
+death_plot + transition_reveal(Date)
+```
+
+
+
+```{r}
+
+vax_plot <- ggplot(data = state_vax, aes(x = date, y = people_vaccinated)) +
+  labs(title = "Covid Vaccines in Maryland"  ) +
+    geom_area( fill="darkblue", alpha = 0.67) 
+    
+vax_plot
+vax_plot + transition_reveal(date) 
+
+```
+
