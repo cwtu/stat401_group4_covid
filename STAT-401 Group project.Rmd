@@ -3,8 +3,10 @@ title: "STAT-401 Group Project"
 author: Chao-Wei Tu, Eugene Domrachev, Sean Kirker, Bintou Sako, Anna Tufail, Kyle
   Weston
 output:
-  pdf_document: default
+  html_document:
+    df_print: paged
   html_notebook: default
+  pdf_document: default
 ---
 
  
