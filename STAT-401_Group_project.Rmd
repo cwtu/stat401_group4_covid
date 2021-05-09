@@ -754,7 +754,7 @@ beta_hat
 
 ## Conclusion
 
-The slope represent the changes in daily death cases for every 1 person vaccinated. The reciprocal shows the changes in number of people vaccinated for every dead person. In other words, for every 4,000 Americans get vaccinated, there is one person been "saved." This statistics shows that fighting the pandemic is a team work. It requires people to work as a country to brings the numbers down.
+The slope represent the changes in daily death cases for every 1 person vaccinated. The reciprocal shows the changes in number of people vaccinated for every dead person. In other words, for every ~50,000 Americans get vaccinated, there is one person been "saved." This statistics shows that fighting the pandemic is a team work. It requires people to work as a country to brings the numbers down.
 
 <br>
 
