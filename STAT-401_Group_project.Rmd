@@ -1,0 +1,770 @@
+---
+title : Stat-401 Group 4 Project
+author: Chao-Wei Tu, Eugene Domrachev, Sean Kirker, Bintou Sako, Anna Tufail, Kyle
+  Weston
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  html_notebook: default
+---
+
+
+```{css, echo=FALSE}
+h1, h2, h3 {
+  text-align: center;
+}
+
+p {
+  font-size: 16px;
+}
+
+li {
+  font-size: 20px;
+}
+```
+
+ 
+# Introduction
+We will be using the Johns Hopkins University data-set, which contains information on case and death numbers across all 50 states. We will also use an "Our World in Data" data-set which tracks the number of administered vaccines across all 50 states. This extensive data is extremely useful in gauging how efforts to stop the spread of the virus and preventing deaths associated with it are progressing. However, this data does not contain information regarding the ratio of deaths to cases, or if/how vaccines and deaths from COVID. These are the questions we will attempt to answer:
+
+1. Is chance of dying from COVID really 1%? 
+2. Are vaccines reducing the number of deaths that we see? 
+
+
+---
+
+
+<br>
+
+# Question 1: COVID death proportion
+
+<br>
+
+### Data Retrieval
+```{r, message=FALSE, warning=FALSE}
+
+library(ggplot2)
+library(data.table)
+library(ggplot2)
+library(gganimate)
+library(transformr)
+library(dplyr)
+library(tidyverse)
+library(scales)
+
+#Cases from JLU
+confirmed_cases_US <- "https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"
+confirmed_cases_US <- read.csv(confirmed_cases_US)
+
+#Deaths from JLU
+deaths_US <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv"
+deaths_US <- read.csv(deaths_US)
+
+owid_vaccines <- "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/us_state_vaccinations.csv"
+
+owid_vaccines <- read.csv(owid_vaccines)
+
+
+```
+
+
+### Data Cleaning
+```{r, message=FALSE}
+
+vaccines_time = owid_vaccines %>% select("date"| "location" | "people_vaccinated")
+
+
+cases = confirmed_cases_US %>% select("Province_State" | starts_with("X"))
+deaths = deaths_US %>% select("Province_State" | starts_with("X"))
+
+
+cases = cases %>% group_by(Province_State) %>% summarise(across(starts_with("X"), sum))
+deaths = deaths %>% group_by(Province_State) %>% summarise(across(starts_with("X"), sum))
+
+setDT(cases)
+cases = cases %>% melt(cases, id=c("Province_State"), measure=patterns("^X"), value.name="Cases", variable.name="Date")
+
+
+setDT(deaths)
+deaths = deaths %>% melt(deaths, id=c("Province_State"), measure=patterns("^X"), value.name="Deaths", variable.name="Date")
+
+
+cases$Date = as.Date(cases$Date, format="X%m.%d.%y")
+deaths$Date = as.Date(deaths$Date, format="X%m.%d.%y")
+
+covid <- merge(cases, deaths, by=c("Province_State", "Date"))
+
+state = "Maryland"
+state_covid = covid %>% filter(Province_State == state)
+
+#For graphing death proportions in Maryland
+maryland_covid = state_covid
+maryland_covid$P_hat <- as.numeric((maryland_covid$Deaths)/(maryland_covid$Cases))
+maryland_covid$P_hat[is.nan(maryland_covid$P_hat)]<-0
+
+
+US_covid_Deaths <- aggregate(covid$Deaths, by=list(covid$Date), sum)
+US_covid_Cases <- aggregate(covid$Cases, by=list(covid$Date), sum)
+US_covid <- data.table("Date" = as.Date(US_covid_Deaths$Group.1, format ="X%m.%d.%y" ), "Cases" = US_covid_Cases$x, "Deaths" = US_covid_Deaths$x)
+
+US_covid_Deaths_proportion = US_covid
+US_covid_Deaths_proportion$P_hat <- as.numeric((US_covid_Deaths_proportion$Deaths)/(US_covid_Deaths_proportion$Cases))
+US_covid_Deaths_proportion$P_hat[is.nan(US_covid_Deaths_proportion$P_hat)]<-0
+
+
+#reshape data from 'wide' to 'long' for ggplot to understand 
+state_covid = state_covid %>% pivot_longer(cols= c(Deaths, Cases), names_to = "Type")
+
+US_covid = US_covid %>% pivot_longer(cols= c(Deaths, Cases), names_to = "Type")
+#head(state_covid)
+
+vaccines_time$date = as.Date(vaccines_time$date)   
+state_vax = vaccines_time %>% filter(location == state)
+#head(state_vax)
+
+
+
+```
+
+
+<br>
+<br>
+
+## Analysis/Visualizations
+
+### Maryland Covid Visualization
+
+```{r, fig.align="center"}
+theme_set(theme_gray())
+death_plot <- ggplot(data = state_covid, aes(x = Date,y = value , fill = Type)) +
+  labs(title = "Covid Cases and Deaths in Maryland"  ) +
+  geom_area(alpha = .65)  +
+  scale_y_continuous(name = "Number of Cases/Deaths", labels = comma) +
+  scale_fill_manual(values = c('orange','red')) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+death_plot + transition_reveal(Date)
+
+```
+
+
+
+```{r, message=FALSE, warning=FALSE, fig.align="center"}
+
+vax_plot <- ggplot(data = state_vax, aes(x = date, y = people_vaccinated)) +
+  labs(title = "Covid Vaccines in Maryland"  ) +
+  geom_area( fill="darkblue", alpha = 0.67) +
+  scale_y_continuous(name = "People Vaccinated", labels = comma) +  
+  scale_x_date(name = "Date") +
+  theme(plot.title = element_text(hjust = 0.5))
+    
+vax_plot + transition_reveal(date) 
+
+```
+
+<br>
+
+## Hypothesis test for a population proportion
+
+```{r}
+#Let's do a hypothesis test of a population proportion:
+#First get the data from the latest day as of (4-16)
+proportion_deaths <- state_covid[[901,4]]
+proportion_cases <- state_covid[[902,4]]
+proportion_deaths
+proportion_cases
+```
+
+<br>
+
+We now test the null hypothesis for the population parameter $p$ which represents the proportion of deaths out of cases.
+Using the assumption that death represents 1% of cases, we have 
+$$H_0:p=0.01$$ $$H_a:p\neq0.01$$ $$\alpha=0.05$$
+This means we will use a two-tailed test. Additionally, 
+$$n\cdot p_0 = 433359 \cdot 0.01 = 4333.59 > 10$$
+$$n \cdot q_0 = 433359 \cdot .99 = 429025.4 > 10$$
+So we can use a large sample Z-test.
+
+```{r}
+#calculate the Z-stat
+calc_z_stat <- function(p_hat, p_0, n){
+  return((p_hat-p_0)/sqrt(((p_0*(1-p_0))/n)))
+}
+
+# Note that we assume deaths are of the proportion of those already confirmed to have covid
+p_hat = proportion_deaths/proportion_cases
+p_hat #This is an unbiased estimator for the proportion of deaths
+z_stat <- calc_z_stat(p_hat, 0.01, proportion_cases)
+2*(pnorm(abs(z_stat), lower.tail = FALSE)) 
+
+
+
+```
+
+<br>
+However, we reject the null hypothesis a little *too* conclusively. Let's find a suitable sample size for $a = 0.01$ and $b = 0.05$ 
+with $p' = 0.019$ (close to the $\hat{p}$ we calculated earlier)
+
+```{r}
+
+calc_samp_size <- function(alpha, p_0, beta, p_prime) {
+  z_a <- qnorm(alpha, lower.tail = FALSE)
+  z_b <- qnorm(beta, lower.tail = FALSE)
+  return(( (z_a*sqrt(p_0*(1-p_0)) + z_b*sqrt(p_prime*(1-p_prime)))/(p_prime - p_0))^2 )
+}
+
+n <- ceiling(calc_samp_size(0.01, 0.01, 0.05, 0.019))
+n
+```
+So we need a sample size of **2568**.
+
+<br>
+
+
+Let's sample from our current sample at the appropriate sample size.
+```{r}
+
+#make a vector to sample from
+#433359 - 8528 = 424831
+x <- c(replicate(424831,0),replicate(8528,1))
+
+mean(x) #matches p_hat
+
+#sample the sample
+set.seed(0)
+samp <- sample(x,n)
+mean(samp)
+
+#calc z test (again) this time with an upper tailed test
+z_stat <- calc_z_stat(mean(samp), 0.01, n)
+z_stat
+pnorm(z_stat, lower.tail = FALSE)
+
+```
+Once again, we reject the null hypothesis.
+
+
+---
+
+
+<br>
+
+
+Let's try another approach.
+How about using data from different points in time of the pandemic?
+```{r}
+
+summary <- data.frame( "Deaths" = NULL, "Cases" =NULL, "P-Values" = NULL, 
+                       "P_hat" = NULL, "Reject or Fail to Reject?" = NULL, 
+                       "Date"= NULL)
+proportion_deaths <- c()
+proportion_cases <- c()
+dates <- c()
+p_hats <- c()
+
+for(i in seq(from=100, to= 200, by = 10)){
+  proportion_cases <- c(proportion_cases, state_covid[[i,4]])
+  dates <- c(dates, state_covid[[i,2]])
+}
+
+for(i in seq(from=101, to= 201, by = 10)){
+  proportion_deaths <- c(proportion_deaths, state_covid[[i,4]])
+}
+
+
+#Now let's automate the process!
+for(i in cases){
+  p_hat = proportion_deaths/proportion_cases
+  p_hats <- p_hat
+  z_stat <- calc_z_stat(p_hat, 0.01, proportion_cases)
+  p_vals <- 2*(pnorm(abs(z_stat), lower.tail = FALSE))
+}
+
+
+#alpha = 0.05
+result <- p_vals < 0.05
+
+#Note that TRUE means we reject the NULL hypothesis and FALSE means otherwise
+summary <- data.frame( "Deaths" = proportion_deaths, "Cases" = proportion_cases,
+                       "P-Values" = p_vals, "P_hat" = p_hats,  
+                       "Reject or Fail to Reject?" = result, 
+                       "Date"= as.Date(dates, origin="1970-01-01"))
+(summary)
+
+#Note that we cannot assume normality for our first two tests
+
+```
+
+Notice that  earlier in the pandemic our sample is particularly small and we always fail to reject the null hypothesis. However we soon begin rejecting it with every sample. As we know the spread of cases is not linear in nature but, exponential. This leaves a small window where sample sizes are not either too small or too large for our purposes. Let's examine this window further.
+
+```{r}
+summary2 <- data.frame( "Deaths" = NULL, "Cases" = NULL, "P-Values" = NULL, 
+                        "P_hat" = NULL, "Reject or Fail to Reject?" = NULL, 
+                        "Date"= NULL)
+
+proportion_deaths <- c()
+proportion_cases <- c()
+dates <- c()
+p_hats <- c()
+
+for(i in seq(from=134, to=142, by=2)){
+  proportion_cases <- c(proportion_cases, state_covid[[i,4]])
+  dates <- c(dates, state_covid[[i,2]])
+}
+
+for(i in seq(from=135, to=143, by=2)){
+  proportion_deaths <- c(proportion_deaths, state_covid[[i,4]])
+}
+
+
+
+for(i in cases){
+  p_hat = proportion_deaths/proportion_cases
+  p_hat #This is an unbiased estimator for the proportion of deaths
+  z_stat <- calc_z_stat(p_hat, 0.01, proportion_cases)
+  p_hats <- p_hat
+  p_vals <- 2*(pnorm(abs(z_stat), lower.tail = FALSE))
+}
+
+#alpha = 0.05
+result <- p_vals < 0.05
+
+
+summary2 <- data.frame( "Deaths" = proportion_deaths, "Cases" = proportion_cases,
+              "P-Values" = p_vals, "P_hat" = p_hats, "Reject or Fail to Reject?" = result,
+              "Date"= as.Date(dates, origin="1970-01-01"))
+summary2
+
+#once we pass 31 deaths and 1660 cases, we begin to exclusively reject the null hypothesis
+
+```
+<br>
+From what we've investigated so far, our $\hat{p}$ appears to stabilize around 0.05 or around 5% for large samplings.
+Let's now test this value.
+
+$$H_0 : \hat{p}= 0.05$$ $$H_a : \hat{p}\neq 0.05$$ $$\alpha=0.05$$
+```{r}
+
+summary3 <- data.frame( "Deaths" = NULL, "Cases" =NULL, "P-Values" = NULL, 
+                        "P_hat" = NULL, "Reject or Fail to Reject?" = NULL, 
+                        "Date"= NULL)
+proportion_deaths <- c()
+proportion_cases <- c()
+dates <- c()
+p_hats <- c()
+
+#extend our range into very large sample sizes
+for(i in seq(from=100, to= 900, by = 10)){
+  proportion_cases <- c(proportion_cases, state_covid[[i,4]])
+  dates <- c(dates, state_covid[[i,2]])
+}
+
+for(i in seq(from=101, to= 901, by = 10)){
+  proportion_deaths <- c(proportion_deaths, state_covid[[i,4]])
+}
+
+
+#automate the process...
+for(i in cases){
+  p_hat = proportion_deaths/proportion_cases
+  p_hats <- p_hat
+  z_stat <- calc_z_stat(p_hat, 0.05, proportion_cases)
+  p_vals <- 2*(pnorm(abs(z_stat), lower.tail = FALSE))
+}
+
+
+#alpha = 0.05
+result <- p_vals < 0.05
+
+
+
+#"P_hat" = p_hats,
+summary3 <- data.frame( "Deaths" = proportion_deaths, "Cases" = proportion_cases,
+                        "P-Values" = p_vals, "P_hat" = p_hats,  
+                        "Reject or Fail to Reject?" = result, 
+                        "Date"= as.Date(dates, origin="1970-01-01"))
+summary3
+
+#Note that we cannot assume normality for our first two tests.
+```
+We now see we reject null hypothesis for even larger samples. Let's modify our null hypothesis once again:
+$$H_0 : \hat{p}= 0.02$$ $$H_a : \hat{p}\neq 0.02$$ $$\alpha=0.05$$
+based on our lastest $\hat{p}$s.
+```{r}
+
+summary4 <- data.frame( "Deaths" = NULL, "Cases" =NULL, "P-Values" = NULL, 
+                        "P_hat" = NULL, "Reject or Fail to Reject?" = NULL, 
+                        "Date"= NULL)
+proportion_deaths <- c()
+proportion_cases <- c()
+dates <- c()
+p_hats <- c()
+
+
+for(i in seq(from=120, to= 940, by = 10)){
+  proportion_cases <- c(proportion_cases, state_covid[[i,4]])
+  dates <- c(dates, state_covid[[i,2]])
+}
+
+for(i in seq(from=121, to= 941, by = 10)){
+  proportion_deaths <- c(proportion_deaths, state_covid[[i,4]])
+}
+
+
+#automate the process...
+for(i in cases){
+  p_hat = proportion_deaths/proportion_cases
+  p_hats <- p_hat
+  z_stat <- calc_z_stat(p_hat, 0.02, proportion_cases)
+  p_vals <- 2*(pnorm(abs(z_stat), lower.tail = FALSE))
+}
+
+#alpha = 0.05
+result <- p_vals < 0.05
+
+summary4 <- data.frame( "Deaths" = proportion_deaths, "Cases" = proportion_cases,
+                        "P-Values" = p_vals, "P_hat" = p_hats,  
+                        "Reject or Fail to Reject?" = result, 
+                        "Date"= as.Date(dates, origin="1970-01-01"))
+summary4
+
+
+```
+
+
+We can see that even with extremely large sample sizes we fail to reject. Suggesting that the true value for the proportion of deaths in Maryland may have been around 2%. However, if we were to attempt this test with earlier data, between April and June of last year, we may have concluded that the true proportion of deaths was 5%. As of the end of April 2021, the current sample proportions seem to show a downward trend and we again begin to reject the null hypothesis that the true proportion of deaths to cases is 2%. 
+
+Let's visualize the estimator $\hat{p}$.
+
+```{r, fig.align="center"}
+
+p_hat_plot <- ggplot(data = maryland_covid, aes(x = Date,y = P_hat)) +
+  labs(title = "Death as a Proportion of Cases over Time in Maryland "  ) +
+  geom_area(alpha = .65, fill = "red")  +
+  scale_y_continuous(name = "Proportion of Deaths to Cases", labels = comma) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+p_hat_plot + transition_reveal(Date)
+
+
+```
+
+<br>
+Let's try this again at the national level with
+$$H_0 : \hat{p}= 0.0178$$ $$H_a : \hat{p}\neq 0.0178$$ $$\alpha=0.05$$
+```{r}
+summary5 <- data.frame( "Deaths" = NULL, "Cases" =NULL, "P-Values" = NULL, 
+                        "P_hat" = NULL, "Reject or Fail to Reject?" = NULL, "Date"= NULL)
+proportion_deaths <- c()
+proportion_cases <- c()
+dates <- c()
+p_hats <- c()
+
+
+for(i in seq(from=120, to= 940, by = 10)){
+  proportion_cases <- c(proportion_cases, US_covid[[i,3]])
+  dates <- c(dates, US_covid[[i,1]])
+}
+
+for(i in seq(from=121, to= 941, by = 10)){
+  proportion_deaths <- c(proportion_deaths,US_covid[[i,3]])
+}
+
+
+#automate the process...
+
+for(i in cases){
+  p_hat = proportion_deaths/proportion_cases
+  p_hats <- p_hat
+  z_stat <- calc_z_stat(p_hat, 0.0178, proportion_cases)
+  p_vals <- 2*(pnorm(abs(z_stat), lower.tail = FALSE))
+}
+#Notice that our sample size gets so large that our NULL hypothesis must match our value of p_hat to 4 decimal places to not reject the NULL
+
+#alpha = 0.1
+result <- p_vals < 0.05
+
+summary5 <- data.frame( "Deaths" = proportion_deaths, "Cases" = proportion_cases,
+                        "P-Values" = p_vals, "P_hat" = p_hats,  
+                        "Reject or Fail to Reject?" = result, 
+                        "Date"= as.Date(dates, origin="1970-01-01"))
+summary5
+
+```
+
+While our current sample fails to reject the null hypothesis, sampling at nearly any other point in the pandemic would likely give us a different result.
+
+Now, let's again visualize this:
+
+```{r}
+p_hat_plot_US <- ggplot(data = US_covid_Deaths_proportion, aes(x = Date,y = P_hat)) +
+   labs(title = "Death as a Proportion of Cases over Time in the U.S. "  ) +
+   geom_area(alpha = .65, fill = "dark red")  +
+   scale_y_continuous(name = "Proportion of Deaths to Cases", labels = comma) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+   
+
+p_hat_plot_US + transition_reveal(Date)
+```
+
+
+
+# Conclusion
+
+
+Within Maryland, the proportion appears to be going down, suggesting that the ultimate proportion of deaths to cases may be just under less than 2%. We see some stability in our sample proportions starting at the beginning of this year. While this may be due to the population proportion evening out due to large sample size, it could also be the result of different testing methods or procedures for determining COVID to be the cause of death. Furthermore, bias in testing and determining deaths by COVID could skew this figure further.
+
+As with all population parameters, $p$ will never be known in perfect detail. Although we can estimate this parameter through sampling, the exact number is a constantly changing quantity as people are exposed to the virus and others die due to it. Furthermore due to the facts of error in testing, the asymptomatic nature of the virus, error in determining cause of death, and the lag time between developing symptoms, our data is likely already out of date as soon as we can produce it. However, the stability we see in the graph may hint at improvements in how we are able to diagnose and treat the virus. Hopefully, the true current value of $p$ has already decreased even further as a result of these developments. 
+
+
+
+<br>
+
+
+
+---
+
+
+
+<br>
+
+
+# Question 2: Vaccine Death Mitigation
+
+
+<br>
+
+
+
+## Hypothesis on Linear Regression Between Vaccinces and Deaths
+
+
+We are interested in seeing if there is a negative relationship between the number of vaccinated people versus the number of death.
+
+Here are some functions that might be helpful for the linear regressions later.
+```{r}
+sxx <- function(x){
+  x_bar = mean(x)
+  return(Reduce('+', (lapply(x, function(e)(e - x_bar)^2))))
+}
+syy <- function(y){
+  y_bar = mean(y)
+  return(Reduce('+', (lapply(y, function(e)(e - y_bar)^2))))
+}
+sxy <- function(x, y){
+  x = as.numeric(x)
+  x_bar = mean(x)
+  y_bar = mean(y)
+  
+  s = 0
+  for(i in 1:length(x)){
+    s = s + (x[i] - x_bar)*(y[i] - y_bar)
+  }
+  return(s)
+}
+```
+
+<br>
+
+
+Unfortunately, there is some missing data for the number of doses administered to people in some days. We will first find a linear model of the number of vaccine administered as a function of time, then we use this model to impute the missing data.
+
+
+```{r, fig.align="center"}
+
+# we omit rows that has NA and use the rest to find our linear model
+tt_vac <- na.omit(vaccines_time %>% filter(location == "United States"))
+
+x_samp = as.numeric(tt_vac$date)
+y_samp = tt_vac$people_vaccinated
+x_bar = mean(x_samp)
+y_bar = mean(y_samp)
+
+# using the functions earlier, we can find an estimate of the parameters of the linear model
+beta_hat <- sxy(x_samp, y_samp)/sxx(x_samp)
+alpha_hat <- y_bar - beta_hat * x_bar
+y_hat <- function(x){beta_hat*x + alpha_hat}
+
+
+# we then find the day that has the missing data, use the model to predict how many doses were administered that day. Put zero if the predicted model gives a negative value.
+
+tt_vac <- vaccines_time %>% filter(location == "United States")
+x <- as.numeric(tt_vac$date)
+y <-tt_vac$people_vaccinated
+for(i in 1:length(x)){
+  if(is.na(y[i])){
+    y[i] <- if(y_hat(x[i]) > 0) y_hat(x[i]) else 0
+  }
+}
+tt_vac$people_vaccinated <- y
+
+
+
+y_hat <- y_hat(x_samp)
+x_samp <- as.Date(x_samp, origin="1970-01-01")
+x <- as.Date(x, origin="1970-01-01")
+
+
+ggplot(data =NULL , aes(x_samp, y_hat)) +
+        geom_line(color = "orange", size = 1.6) +
+        geom_point(alpha = 0.67, color="blue", aes(as.Date(x, origin="1970-01-01"),y)) +
+        labs(title = "Linear model for vaccinations across the United States" ) +
+        scale_y_continuous(name = "People Vaccinated", labels = comma) +
+        scale_x_date( name = "Date") +
+        theme(plot.title = element_text(hjust = 0.5))
+
+
+
+ 
+```
+
+
+
+From the plot, we can see that the model seems to overestimated some data and underestimated others. This tells us that fitting a linear regression may not be the best way to estimate the true value of the missing data. However, our main goal is to find a reasonable way to fill in the missing data, so we can use all of data points as our input variables. Approximate the missing data with a linear model is good enough for the work we are doing.
+
+Now we have taken care of the missing data, we can start to answer the question that we are interested: Is there any negative relationship between the number of vaccines administered and the number of deaths from COVID? It might be more reasonable to look at new deaths everyday instead of cumulative deaths.
+
+First we want to create a new data frame that records new deaths from the deaths data.
+```{r, fig.align="center"}
+
+
+date_deaths <- aggregate(deaths$Deaths, by=list(Category=deaths$Date), FUN=sum)
+date_deaths$new_death <- diff(c(0, as.matrix(date_deaths$x)))
+colnames(date_deaths) <- c("date", "total_deaths", "daily_deaths")
+# we only consider dates after 2021-01-12 because that's when we started to have data about the number of vaccinated people
+date_deaths <- date_deaths %>% filter(date >= "2021-01-12")
+
+#plot(date_deaths$date, date_deaths$daily_deaths, xlab="number of people vacinated", ylab = "number of death cases daily")
+
+# NOTE: I believe this actually deaths over time 
+
+ggplot(data = date_deaths ) +
+  geom_point(aes(date, daily_deaths), color = "red") +
+  labs(title = "Number of Deaths Over time" ) +
+  scale_y_continuous(name = "Number of Death Cases Daily", labels = comma) +
+  scale_x_date( name = "Date") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+#Now, let's look at this in line form!
+ggplot(data = date_deaths ) +
+  geom_line(aes(date, daily_deaths), color = "red") +
+  labs(title = "Number of Deaths Over time" ) +
+  scale_y_continuous(name = "Number of Death Cases Daily", labels = comma) +
+  scale_x_date( name = "Date", date_breaks = "1 week", labels = date_format("%m-%d")) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        plot.title = element_text(hjust = 0.5)
+        )
+
+
+#Notice that when we place the breaks on this graph at the week interval, our breaks correspond with 
+#those low points! I believe this is due to the aggregate nature of this data. Most 
+#states/institutions seem to report their numbers on Wednesdays and are on breaks 
+#during weekends which is why we see this pattern!
+  
+```
+<br>
+
+Let's get rid of columns we don't need.
+```{r}
+vac_death <- merge(tt_vac[ , c("date", "people_vaccinated")], date_deaths[ , c("date", "daily_deaths")], by="date")
+```
+
+<br>
+
+We can now start our hypothesis test. Recall that we want to know if there is a negative relationship between the number of people get vaccinated and number of daily deaths. We set our null hypothesis to there is no relationship between the two features and alternative hypothesis to there is a negative relationship between the two features. In other words, we can write them as $$H_0:\hat{\beta}=0$$  $$H_a:\hat{\beta}<0$$ $$\alpha = 0.05$$ with $\hat{\beta}$ as our estimator for true slope for the two parameters that we are interested.
+
+
+```{r}
+beta = 0
+x_samp = vac_death$people_vaccinated
+y_samp = vac_death$daily_deaths
+n = length(vac_death$people_vaccinated)
+x_bar = mean(x_samp)
+y_bar = mean(y_samp)
+
+
+# using the functions earlier, we can find an estimate of the parameters of the linear model
+beta_hat <- sxy(x_samp, y_samp)/sxx(x_samp)
+alpha_hat <- y_bar - beta_hat * x_bar
+y_hat <- function(x){beta_hat*x + alpha_hat}
+
+
+#model utility test
+sse = syy(y_samp) - beta_hat*sxy(x_samp, y_samp)
+s_squared = sse/(n-2)
+t_stat = (beta_hat )/sqrt(s_squared/sxx(x_samp))
+p_val = 2*pt(abs(t_stat), n-2, lower.tail = FALSE)
+p_val
+
+#we conclusively  reject, meaning the linear model may be usable!
+
+```
+
+```{r, fig.align="center"}
+
+#Using ggplot to calculate the linear regression line with each as a control and  response variable
+ggplot(data=vac_death, aes(people_vaccinated, daily_deaths)) +
+    geom_point() + 
+    labs(title = "Daily Deaths vs. People Vaccinated" ) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_y_continuous( labels = comma) +  
+    geom_smooth(method='lm') +
+    scale_x_continuous( labels = comma)
+
+ggplot(data=vac_death, aes(daily_deaths, people_vaccinated)) + 
+    geom_point() +
+    labs(title = "People Vaccinated vs.Daily Deaths" ) +
+    theme(plot.title = element_text(hjust = 0.5)) + 
+    scale_y_continuous( labels = comma) + 
+    geom_smooth(method='lm') +
+    scale_x_continuous( labels = comma)
+
+#using lm find a_hat and b_hat
+lm(vac_death$daily_death ~ vac_death$people_vaccinated)
+lm(vac_death$people_vaccinated ~ vac_death$daily_death)
+
+```
+
+
+<br>
+Find the t statistic and p value with the information we have.
+```{r}
+sse = syy(y_samp) - beta_hat*sxy(x_samp, y_samp)
+s_squared = sse/(n-2)
+t_stat = (beta_hat - beta)/sqrt(s_squared/sxx(x_samp))
+p_val = pt(t_stat, n-2, lower.tail = TRUE)
+p_val
+```
+```{r}
+#proportion of explained variation of the model.
+#it's around 60% which is not fantastic, but adequate.
+1-(sse/syy(y_samp))
+```
+
+
+We get a p value that is so small that any reasonable significance level is greater than it, so we can easily conclude that we reject our null hypothesis and say that number of people vaccinated has a negative relationship with daily death cases.
+
+Here is the slope of the linear model.
+```{r}
+beta_hat
+1/beta_hat
+```
+
+
+## Conclusion
+
+The slope represent the changes in daily death cases for every 1 person vaccinated. The reciprocal shows the changes in number of people vaccinated for every dead person. In other words, for every 4,000 Americans get vaccinated, there is one person been "saved." This statistics shows that fighting the pandemic is a team work. It requires people to work as a country to brings the numbers down.
+
+<br>
+
+---
+
+<br>
+
+# Future work
+With respect to vaccines, future work could include testing if and how mean effectiveness of different vaccines differ through ANOVA and Tukey's procedure respectively. However, we could not find this experimental information on vaccines. We would also have liked to explore the linear relationship between vaccines, deaths, and cases in more detail. Using the data of vaccine administrations to explore the issue of vaccine hesitancy and herd immunity is another analytical step we would have liked to take.
+
+Thank you for reading!
+
+<br>
